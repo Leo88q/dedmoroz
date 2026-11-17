@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
   role       TEXT NOT NULL DEFAULT 'client',      -- client | artist | dispatcher
   state      TEXT NOT NULL DEFAULT 'idle',
   data       TEXT NOT NULL DEFAULT '{}',          -- JSON-контекст FSM
+  consent_at TEXT,                                 -- когда дано согласие на ПДн
+  notif_opt_in INTEGER NOT NULL DEFAULT 1,         -- 0 = отписан от рассылок
   created_at TEXT NOT NULL
 );
 
@@ -103,6 +105,18 @@ class DB:
         self._lock = threading.Lock()
         with self._lock, self._conn:
             self._conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Добавить колонки, появившиеся после первой версии схемы."""
+        self._ensure_column("users", "consent_at", "TEXT")
+        self._ensure_column("users", "notif_opt_in", "INTEGER NOT NULL DEFAULT 1")
+
+    def _ensure_column(self, table: str, column: str, ddl: str) -> None:
+        cols = {row["name"] for row in self._q(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            with self._lock, self._conn:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     def close(self) -> None:
         self._conn.close()
@@ -155,6 +169,42 @@ class DB:
 
     def dispatchers(self) -> list[sqlite3.Row]:
         return self._q("SELECT * FROM users WHERE role='dispatcher'")
+
+    # ---------------------------------------------------- согласие и ПДн
+    def set_consent(self, user_id: int, now: str) -> None:
+        self._exec("UPDATE users SET consent_at=? WHERE user_id=?", (now, user_id))
+
+    def has_consent(self, user_id: int) -> bool:
+        row = self.get_user(user_id)
+        return bool(row and row["consent_at"])
+
+    def revoke_consent(self, user_id: int) -> None:
+        self._exec("UPDATE users SET consent_at=NULL WHERE user_id=?", (user_id,))
+
+    def set_notif_opt_in(self, user_id: int, opt_in: bool) -> None:
+        self._exec("UPDATE users SET notif_opt_in=? WHERE user_id=?",
+                   (1 if opt_in else 0, user_id))
+
+    def orders_count(self, user_id: int) -> int:
+        row = self._one("SELECT COUNT(*) AS cnt FROM orders WHERE client_id=?",
+                        (user_id,))
+        return int(row["cnt"]) if row else 0
+
+    def anonymize_user(self, user_id: int, now: str) -> None:
+        """Право на удаление (152-ФЗ): стираем персональные данные,
+        обезличенные финансовые записи заказов сохраняем для учёта."""
+        self._exec(
+            """UPDATE users SET name='', state='idle', data='{}', consent_at=NULL,
+                                notif_opt_in=0 WHERE user_id=?""",
+            (user_id,),
+        )
+        self._exec(
+            """UPDATE orders SET child_name='', child_age=NULL, phone='',
+                                 district='(удалено)', wishes=''
+               WHERE client_id=?""",
+            (user_id,),
+        )
+        self.add_event(None, "personal_data_erased", f"user {user_id}", now)
 
     # ---------------------------------------------------------------- artists
     def create_artist(self, user_id: int, stage_name: str, districts: str,

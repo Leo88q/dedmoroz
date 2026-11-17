@@ -63,6 +63,7 @@ def approve(bot, artist_id):
 def make_order(bot, client=CLIENT, when=None, budget=6000, district="Центр, ул. Ленина 5"):
     start(bot, client, "Anna")
     press(bot, client, "menu:order", "Anna")
+    press(bot, client, "consent:accept", "Anna")   # согласие на ПДн
     when = when or (bot.now() + timedelta(days=5))
     say(bot, client, when.strftime("%d.%m.%Y %H:%M"), "Anna")
     say(bot, client, district, "Anna")
@@ -280,6 +281,85 @@ def test_dispatcher_code_self_assignment(bot):
     say(bot, 42, "/admin code", "Boss")
     assert bot.db.get_user(42)["role"] == "dispatcher"
     assert 42 in bot.all_dispatchers()
+
+
+def test_consent_required_before_order(bot):
+    """П. 6/17 чек-листа: без согласия на ПДн анкета не начинается."""
+    start(bot, CLIENT, "Anna")
+    assert not bot.db.has_consent(CLIENT)
+    press(bot, CLIENT, "menu:order", "Anna")
+    # показан экран согласия, анкета НЕ началась
+    assert bot.db.get_user(CLIENT)["state"] != "order:date"
+    consent_msg = bot.api.last_to(CLIENT)
+    assert "Персональные данные" in consent_msg.text
+    assert any("Согласен" in b["text"] for b in consent_msg.buttons)
+    press(bot, CLIENT, "consent:accept", "Anna")
+    assert bot.db.has_consent(CLIENT)
+    assert bot.db.get_user(CLIENT)["state"] == "order:date"
+
+
+def test_my_data_and_deletion(bot):
+    """П. 20 чек-листа: просмотр и удаление своих данных."""
+    start(bot, CLIENT, "Anna")
+    press(bot, CLIENT, "menu:order", "Anna")
+    press(bot, CLIENT, "consent:accept", "Anna")
+    press(bot, CLIENT, "order:cancel", "Anna")   # отмена, чтобы можно было удалиться
+    press(bot, CLIENT, "menu:legal", "Anna")
+    press(bot, CLIENT, "legal:mydata", "Anna")
+    mydata = bot.api.last_to(CLIENT)
+    assert "ID в MAX" in mydata.text and "дано" in mydata.text
+
+    press(bot, CLIENT, "legal:delete", "Anna")
+    confirm = bot.api.last_to(CLIENT)
+    assert any("удалить" in b["text"].lower() for b in confirm.buttons)
+    press(bot, CLIENT, "legal:delete_yes", "Anna")
+    user = bot.db.get_user(CLIENT)
+    assert user["name"] == "" and user["consent_at"] is None
+
+
+def test_delete_blocked_with_active_order(bot):
+    a1 = register_artist(bot, ARTIST, "Иван")
+    approve(bot, a1["id"])
+    order = make_order(bot)
+    press(bot, CLIENT, "menu:legal", "Anna")
+    press(bot, CLIENT, "legal:delete", "Anna")
+    msg = bot.api.last_to(CLIENT)
+    assert "нельзя" in msg.text          # удаление заблокировано активным заказом
+    assert bot.db.get_user(CLIENT)["name"] == "Anna"
+
+
+def test_notif_opt_out_skips_rate_request(bot):
+    """П. 18 чек-листа: отписка от рассылок отключает запросы оценки."""
+    a1 = register_artist(bot, ARTIST, "Иван")
+    approve(bot, a1["id"])
+    order = make_order(bot)
+    press(bot, CLIENT, f"offer:pick:{a1['id']}", "Anna")
+    press(bot, ARTIST,
+          f"artist:accept:{bot.db.pending_offer(order['id'], 'primary')['id']}", "Ivan")
+    press(bot, CLIENT, f"pay:done:{order['id']}", "Anna")
+
+    press(bot, CLIENT, "menu:legal", "Anna")
+    press(bot, CLIENT, "legal:notif", "Anna")    # отписка
+    assert bot.db.get_user(CLIENT)["notif_opt_in"] == 0
+
+    event_at = datetime.fromisoformat(bot.db.get_order(order["id"])["event_at"])
+    bot.now = lambda: event_at + timedelta(hours=6)  # noqa: E731
+    services.scheduler_tick(bot)
+    assert bot.db.get_order(order["id"])["status"] == "completed"
+    # запрос оценки НЕ отправлен
+    assert not any("Оцените" in m.text for m in bot.api.pop_all())
+
+
+def test_legal_docs_available(bot):
+    """П. 1-3, 16: документы и реквизиты доступны из бота."""
+    start(bot, CLIENT, "Anna")
+    press(bot, CLIENT, "menu:legal", "Anna")
+    for payload, marker in (("legal:doc:privacy", "ПОЛИТИКА"),
+                            ("legal:doc:offer", "ОФЕРТА"),
+                            ("legal:doc:refund", "ВОЗВРАТА"),
+                            ("legal:reqs", "РЕКВИЗИТЫ")):
+        press(bot, CLIENT, payload, "Anna")
+        assert marker in bot.api.last_to(CLIENT).text
 
 
 def test_parse_datetime_rolls_to_next_year():

@@ -31,6 +31,21 @@ class Config:
     business_tz: str = "Europe/Moscow"
     polling_timeout: int = 30
 
+    # --- Реквизиты оператора и документы (152-ФЗ / оферта) ---
+    legal_entity: str = "«НАЗВАНИЕ ОРГАНИЗАЦИИ / ИП»"
+    legal_inn: str = "«ИНН»"
+    legal_ogrn: str = "«ОГРН / ОГРНИП»"
+    legal_address: str = "«ЮРИДИЧЕСКИЙ АДРЕС»"
+    legal_email: str = "«EMAIL ДЛЯ ОБРАЩЕНИЙ ПО ПДн»"
+    legal_phone: str = "«ТЕЛЕФОН ПОДДЕРЖКИ»"
+    service_city: str = "«ГОРОД»"
+    privacy_url: str = ""   # если документы на сайте — кнопки-ссылки, иначе текст
+    offer_url: str = ""
+    refund_url: str = ""
+    cancel_free_hours: int = 24      # бесплатная отмена до N часов
+    cancel_fee_percent: int = 30     # удержание при поздней отмене
+    refund_days: int = 10            # срок возврата денег
+
     @classmethod
     def from_env(cls, require_token: bool = True) -> "Config":
         _load_dotenv()

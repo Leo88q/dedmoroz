@@ -13,7 +13,47 @@ def main_menu(is_artist: bool = False) -> dict:
     ]
     if not is_artist:
         rows.append([cb("🎭 Стать артистом", "menu:become_artist")])
+    rows.append([cb("🔐 Данные и документы", "menu:legal")])
     return keyboard(rows)
+
+
+def consent_keyboard(privacy_url: str = "", offer_url: str = "") -> dict:
+    docs_row = []
+    if privacy_url:
+        docs_row.append(link("📄 Политика", privacy_url))
+    else:
+        docs_row.append(cb("📄 Политика", "legal:doc:privacy"))
+    if offer_url:
+        docs_row.append(link("📑 Оферта", offer_url))
+    else:
+        docs_row.append(cb("📑 Оферта", "legal:doc:offer"))
+    return keyboard([
+        [cb("✅ Согласен — я родитель/представитель", "consent:accept", "positive")],
+        docs_row,
+        [cb("🏠 В меню", "menu:home")],
+    ])
+
+
+def legal_menu(notif_opt_in: bool) -> dict:
+    notif_label = ("🔕 Отписаться от рассылок" if notif_opt_in
+                   else "🔔 Подписаться на уведомления")
+    return keyboard([
+        [cb("📄 Политика конфиденциальности", "legal:doc:privacy")],
+        [cb("📑 Оферта", "legal:doc:offer"),
+         cb("💸 Условия возврата", "legal:doc:refund")],
+        [cb("🧾 Реквизиты", "legal:reqs")],
+        [cb("👤 Мои данные", "legal:mydata")],
+        [cb(notif_label, "legal:notif")],
+        [cb("🗑 Удалить мои данные", "legal:delete", "negative")],
+        [cb("🏠 В меню", "menu:home")],
+    ])
+
+
+def delete_confirm() -> dict:
+    return keyboard([
+        [cb("✅ Да, удалить всё", "legal:delete_yes", "negative"),
+         cb("🏠 Оставить", "menu:home")],
+    ])
 
 
 def characters() -> dict:

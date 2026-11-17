@@ -139,13 +139,20 @@ def handle_menu_callback(app, user_id: int, payload: str, callback_id: str) -> b
     if cmd in ("home",):
         send_main_menu(app, user_id)
     elif cmd == "order":
-        if app.db.active_order_of_client(user_id):
+        # Сначала — согласие на обработку ПДн (152-ФЗ), потом анкета
+        if not app.db.has_consent(user_id):
+            from . import handlers_legal
+            handlers_legal.show_consent(app, user_id)
+        elif app.db.active_order_of_client(user_id):
             app.api.send_message(
                 "У вас уже есть активный заказ. Сначала завершите или отмените его "
                 "(«📋 Мой заказ»).", user_id=user_id)
             send_main_menu(app, user_id)
         else:
             start_order(app, user_id)
+    elif cmd == "legal":
+        from . import handlers_legal
+        handlers_legal.show_legal_menu(app, user_id)
     elif cmd == "my":
         order = app.db.active_order_of_client(user_id)
         if not order:

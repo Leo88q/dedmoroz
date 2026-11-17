@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import re
 
-from . import handlers_admin, handlers_artist, handlers_client
+from . import handlers_admin, handlers_artist, handlers_client, handlers_legal
 from .fsm import S
 
 log = logging.getLogger(__name__)
@@ -78,6 +78,8 @@ def handle_message(app, user_id: int, text: str, phone: str | None = None) -> No
         if cmd == "/id":
             app.api.send_message(f"Ваш MAX user_id: {user_id}", user_id=user_id)
             return
+        if handlers_legal.handle_legal_command(app, user_id, text):
+            return
         if handlers_admin.handle_admin_command(app, user_id, text):
             return
 
@@ -120,6 +122,7 @@ def handle_callback(app, user_id: int, payload: str, callback_id: str) -> None:
         or handlers_client.handle_rate_callback(app, user_id, payload, callback_id)
         or handlers_artist.handle_artist_callback(app, user_id, payload, callback_id)
         or handlers_admin.handle_admin_callback(app, user_id, payload, callback_id)
+        or handlers_legal.handle_legal_callback(app, user_id, payload, callback_id)
     )
     if not handled:
         log.warning("unhandled callback payload=%r from user=%s", payload, user_id)

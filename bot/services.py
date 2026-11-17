@@ -375,6 +375,11 @@ def _send_due_reminders(app, now_iso: str) -> None:
                 attachments=[keyboards.checkin(order["id"])],
             )
         elif rem["kind"] == "rate_request":
+            # это информационное сообщение — уважаем отписку (152-ФЗ/реклама)
+            user = app.db.get_user(order["client_id"])
+            if user and not user["notif_opt_in"]:
+                app.db.mark_reminder_sent(rem["id"])
+                continue
             app.api.send_message(
                 texts.RATE_ASK.format(name=name),
                 user_id=order["client_id"],
